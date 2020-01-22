@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 const mysql = require('mysql');
+const CronJob = require('cron').CronJob;
 app.use(cors());
 app.use(express.json());
 //https://github.com/hafizImran/nodejs-test
@@ -40,7 +41,6 @@ async function addRestaurant(req , res){
             let connection = await mysqlConnect();
             let query = "INSERT INTO `restaurants` (`name`, `contact`,`address`) VALUES ('"+name+"','"+contact+"','"+address+"')";
             let insertion = await queryExecution(query , connection);
-            console.log('insertion       ', insertion);
 
             if(insertion.status == 500){
                 connection.destroy();
@@ -60,8 +60,8 @@ async function addRestaurant(req , res){
           
         catch(err){	
             console.log(err);
-            //connection.destroy();
             res.send({status: 400, message:err.message});
+            connection.destroy();
         }   
     
 }
@@ -81,37 +81,38 @@ try{
     if(!Array.isArray(order))
         return res.send({status: 400, message:'Required array of orders'});
 
-
+    let items = [];
+    for(let i=0 ; i<order.length ; i++)
+    {
+        items.push(order[i].itemName);
+    }
+    items = items.toString();
     let connection = await mysqlConnect();
-    let query = "INSERT INTO `orders` (`restaurant_id`, `created_at`) VALUES ('"+id+"','"+date+"')";
+    let query = "INSERT INTO `orders` (`restaurant_id`, `created_at`,`items`) VALUES ('"+id+"','"+date+"','"+items+"')";
     let rows = await queryExecution(query , connection);
 
     if(rows.status == 500){
         connection.destroy();
-        return res.send(insertion);
+        return res.send(rows);
     }else{
         
-            let i=0 , array = [] , query1='' , itemsArray = [] , response = {};
-            order.forEach(element => {
-                i++;
-                array.push(i);
-                query1 +="INSERT INTO `order_items` (`order_id` ,`items`) VALUES ("+rows.message.insertId+", '"+element.itemName+"');";   
-            });
-            await bulkExecution(query1,array,connection);
-
-          let getQuery = "SELECT orders.restaurant_id,orders.status,orders.created_at,order_items.items FROM `order_items`,`orders` WHERE orders.order_id = '"+rows.message.insertId+"' AND order_items.order_id = '"+rows.message.insertId+"';";
+          let getQuery = "SELECT * FROM `orders` WHERE order_id = '"+rows.message.insertId+"';";
           let result = await queryExecution(getQuery , connection);
-           
-          for(let i=0 ; i<result.message.length ; i++){
+          
+          let getItems = result.message[0].items.split(',');
+          
+          let itemsArray = [] , response = {};
+          for(let i=0 ; i<getItems.length ; i++){
               let record = {};
               if(i==0)
               {
+                response.orderId = result.message[i].order_id;
                 response.restaurantId = result.message[i].restaurant_id; 
                 response.status = result.message[i].status;
                 response.created_at = result.message[i].created_at;
               }
 
-             record.itemName = result.message[i].items;
+             record.itemName = getItems[i];
              itemsArray.push(record);
           }
           
@@ -124,96 +125,234 @@ try{
 }
 catch(err){	
     console.log(err);
-    connection.destroy();
-    res.send({status: 400, message:err.message}); 
+    res.send({status: 400, message:err.message});
+    connection.destroy(); 
 }   
 
 }
-
 async function updateOrder(req,res){
-    console.log('updateTag called................');
+    console.log('updateOrder called................');
 
 try{
-    let restaurant_id = req.body.restaurantid;
-    let title = req.body.tagTitle;
-    let tags = req.body.tags;
-    let isDefault = req.body.is_default;
-   
-    if(!isDefault || isDefault== "")
-        isDefault = 1;
-
-    if(!tag_id || tag_id=="" || !tags || tags=="" || !title || title=="")
-        return res.send({status: 400 , message: 'Required parameters are missing'});
-
-    if(!Array.isArray(tags))
-        return res.send({status: 403, message:'Something went wrong with tags array'});
+    let id    = req.body.orderId;
+    let order = req.body.order;
 
     let date= new Date().toISOString();
     date = date.substr(0,date.length-1);
-    
-    let query = "UPDATE `tags` set `tag_title` = '"+title+"',`is_default` = '"+isDefault+"' , `created_at` = '"+date+"' WHERE `tag_id` = '"+tag_id+"';SELECT `title_id` FROM `tag_titles` WHERE `tag_id` = '"+tag_id+"';";
 
+    if(!id || id=="" || !order || order=="")
+        return res.send({status: 400 , message: 'Required parameters are missing'});
+
+    if(!Array.isArray(order))
+        return res.send({status: 400, message:'Required array of orders'});
+
+    let items = [];
+    for(let i=0 ; i<order.length ; i++)
+    {
+        items.push(order[i].itemName);
+    }
+    items = items.toString();
     let connection = await mysqlConnect();
+    let query = "UPDATE `orders` SET `items` = '"+items+"' , `created_at` = '"+date+"' WHERE `order_id` = '"+id+"';";
+    let rows = await queryExecution(query , connection);
 
-    connection.query(query,async function (err, rows, fields) {
-        if (err){
-                console.log(err);
-                connection.destroy();
-                return res.send({status: 500 ,message: err});
-        }else{
-            if(rows.affectedRows==0){
-                connection.destroy();
-                return res.send({status: 404 , message: 'Tag not found'}); 
-            }
-
-            let i=0 , array = [] , query1 = '';
-
-            tags.forEach(element => {
-                i++;
-                array.push(i);
-                query1 +="UPDATE `tag_titles` set  `tag` = '"+element.tagName+"' WHERE `title_id` = '"+rows[1][i-1].title_id+"';";
-            });
-
-             await junkExecution(query1 , array , connection); 
-          
-
-        //   let roleQuery = "UPDATE `tag_titles` set  `role_title` = '"+role+"' WHERE role_id = '"+rows[1][0].role_id+"';";
-        //   let title = await queryExecution(roleQuery , connection);
-
-          let tagQuery = "SELECT tags.tag_id,tags.tag_title,tags.created_at,tag_titles.tag FROM `tag_titles`,`tags` WHERE tags.tag_id = '"+tag_id+"' AND tag_titles.tag_id = '"+tag_id+"';";
-          let result = await queryExecution(tagQuery, connection);
-
-          let response = {} , tagsArray = [];
-          for(let i=0 ; i<result.length ; i++){
-            let record = {};
-            if(i==0)
-            {
-              response.tag_id = result[i].tag_id;
-              response.tagTitle = result[i].tag_title;
-              response.created_at = result[i].created_at;
-            }
-           //record.tag_id = result[i].tag_id;
-           record.tagName = result[i].tag;
-           tagsArray.push(record);
+    if(rows.status == 500){
+        connection.destroy();
+        return res.send(rows);
+    }else{
+        if(rows.message.affectedRows == 0){
+            connection.destroy();
+            return res.send({status: 404 , message: 'order not found'})
         }
-            
-          response.tags = tagsArray;
+        
+          let getQuery = "SELECT * FROM `orders` WHERE order_id = '"+id+"';";
+          let result = await queryExecution(getQuery , connection);
           
+          let getItems = result.message[0].items.split(',');
+          
+          let itemsArray = [] , response = {};
+          for(let i=0 ; i<getItems.length ; i++){
+              let record = {};
+              if(i==0)
+              {
+                response.orderId = result.message[i].order_id;
+                response.restaurantId = result.message[i].restaurant_id; 
+                response.status = result.message[i].status;
+                response.created_at = result.message[i].created_at;
+              }
+
+             record.itemName = getItems[i];
+             itemsArray.push(record);
+          }
+          
+          response.items = itemsArray;
           connection.destroy(); 
-          res.send({status: 200 , message: 'Tag has successfully updated',result : response});
+          res.send({status: 200 , message: 'successfully updated',result : response});
          
         }
-    }); 
     
 }
 catch(err){	
     console.log(err);
-    connection.destroy(); 
-    res.status(403).send({success:false, message:err.message});
+    res.send({status: 400, message:err.message});
+    connection.destroy();
+
 }   
 
 }
+async function changeOrderStatus(req,res){
+    console.log('orderPreparingStatus called................');
 
+try{
+    let id    = req.body.orderId;
+    let status = req.body.status.toUpperCase();
+
+    if(status != 'PREPARING' && status != 'COMPLETED')
+        return res.send({status: 400 , message: 'Invalid status'});
+
+
+    if(!id || id=="" || !status || status=="")
+        return res.send({status: 400 , message: 'Required parameters are missing'});
+
+    let connection = await mysqlConnect();
+    let query = "UPDATE `orders` SET `status` = '"+status+"' WHERE `order_id` = '"+id+"';";
+    let rows = await queryExecution(query , connection);
+
+    if(rows.status == 500){
+        connection.destroy();
+        return res.send(rows);
+    }else{
+        if(rows.message.affectedRows == 0){
+            connection.destroy();
+            return res.send({status: 404 , message: 'order not found'})
+        }
+        
+          let getQuery = "SELECT * FROM `orders` WHERE order_id = '"+id+"';";
+          let result = await queryExecution(getQuery , connection);
+          
+          let getItems = result.message[0].items.split(',');
+          
+          let itemsArray = [] , response = {};
+          for(let i=0 ; i<getItems.length ; i++){
+              let record = {};
+              if(i==0)
+              {
+                response.orderId = result.message[i].order_id;
+                response.restaurantId = result.message[i].restaurant_id; 
+                response.status = result.message[i].status;
+                response.created_at = result.message[i].created_at;
+              }
+
+             record.itemName = getItems[i];
+             itemsArray.push(record);
+          }
+          
+          response.items = itemsArray;
+          connection.destroy(); 
+          res.send({status: 200 , message: 'status successfully changed',result : response});
+         
+        }
+    
+}
+catch(err){	
+    console.log(err);
+    res.send({status: 400, message:err.message}); 
+    connection.destroy();
+
+}   
+
+}
+async function deleteOrder(req,res){
+    console.log('deleteOrder called................');
+
+try{
+    let orderId    = req.body.orderId;
+    let restaurantId = req.body.restaurantId;
+
+    if(!orderId || orderId=="" || !restaurantId || restaurantId=="")
+        return res.send({status: 400 , message: 'Required parameters are missing'});
+
+    let connection = await mysqlConnect();
+    let query = "DELETE FROM `orders` WHERE `order_id` = '"+orderId+"' AND `restaurant_id` = '"+restaurantId+"';";
+    let rows = await queryExecution(query , connection);
+    connection.destroy();
+
+    if(rows.status == 500)
+        return res.send(rows); 
+    else{
+
+        if(rows.message.affectedRows == 0)
+            return res.send({status: 404 , message: 'order not found'})
+        
+        res.send({status: 200 , message: 'order successfully deleted'});
+         
+        }
+    
+}
+catch(err){	
+    console.log(err);
+    res.send({status: 400, message:err.message}); 
+    connection.destroy();
+}   
+
+}
+async function getAllOrders(req,res){
+    console.log('getAllOrders called................');
+
+try{
+    let restaurantId = req.query.restaurantId;
+
+    if(!restaurantId || restaurantId=="")
+        return res.send({status: 400 , message: 'Required parameters are missing'});
+
+    let connection = await mysqlConnect();
+    let query = "SELECT * FROM `orders` WHERE  `restaurant_id` = '"+restaurantId+"';";
+    let rows = await queryExecution(query , connection);
+    connection.destroy();
+    console.log(rows);
+
+    if(rows.status == 500)
+        return res.send(rows); 
+    else{
+
+        if(rows.message.length == 0)
+            return res.send({status: 404 , message: 'order not found'});
+
+        let getItems = [] , responseArray = []   ;
+        for(let i=0 ; i<rows.message.length ; i++){
+            let response = {} ,  itemsArray = [];
+            response.orderId = rows.message[i].order_id;
+            response.restaurantId = rows.message[i].restaurant_id; 
+            response.status = rows.message[i].status;
+            response.created_at = rows.message[i].created_at;
+
+            getItems = rows.message[i].items.split(',');
+            for(let j=0 ; j<getItems.length ; j++){
+                let record = {};
+  
+               record.itemName = getItems[j];
+               itemsArray.push(record);
+            }
+            response.items = itemsArray;
+            responseArray.push(response);
+        }
+
+            
+            
+            
+        
+        res.send({status: 200 , message: 'order successfully deleted' , orders: responseArray});
+         
+        }
+    
+}
+catch(err){	
+    console.log(err);
+    res.send({status: 400, message:err.message}); 
+    connection.destroy();
+}   
+
+}
 function queryExecution(query,connection){
 	return new Promise(async resolve => {
 		
@@ -247,8 +386,21 @@ function bulkExecution(query,array,con){
 		
 	});
 }
+const job = new CronJob('* * * * *', async function() {
+
+    let connection=await mysqlConnect();
+    let query = "DELETE FROM `orders` WHERE `status` = 'COMPLETED';";
+    let result = await queryExecution(query,connection);
+    
+      console.log('is job running? ', job.running );
+    connection.destroy();
+});
+  job.start(); 
 module.exports = {
     addRestaurant,
     postOrder,
     updateOrder,
+    changeOrderStatus,
+    deleteOrder,
+    getAllOrders
 }

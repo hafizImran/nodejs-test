@@ -22,6 +22,21 @@ app.put('/updateOrder', async function(req, res){
 	endpoints.updateOrder(req, res);
 	
 });
+app.post('/changeOrderStatus', async function(req, res){
+		
+	endpoints.changeOrderStatus(req, res);
+	
+});
+app.delete('/deleteOrder', async function(req, res){
+		
+	endpoints.deleteOrder(req, res);
+	
+});
+app.get('/getAllOrders', async function(req, res){
+		
+	endpoints.getAllOrders(req, res);
+	
+});
 
 process.on('unhandledRejection', (reason, promise) => {
     console.log('Unhandled Rejection. This might crash the service');
